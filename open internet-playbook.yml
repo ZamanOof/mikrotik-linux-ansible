@@ -1,0 +1,612 @@
+---
+- name: RouterOS test with API
+  hosts: khv1srv
+  gather_facts: true
+  vars:
+    encoding: "UTF-8"
+    natchain: "srcnat"
+    nataction: "masquerade"
+    # to create it got to interfaces-> interface list -> then create whaterver list of interfaces y want
+    interfacelist: "net"
+    # nat status true:disabled
+    natstatus: "yes"
+    # ansible_connection: ansible.netcommon.network_cli
+    hostname: gpsm.test
+    # to avoide "msg":"'pgkq' is undefined"
+    pgkq: []
+    notexisthostsaddrlist: []
+    notexistnatinfo: []
+    # after reredetect package websites in device
+    detectnatwebsites: []
+    # router username
+    username: admin
+    # router password
+    password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          63636262626666613932636161646336383034303965336239633161663366363432323066363232
+          3265336263623062663065376234633361323234376639390a656130666634363935373334333433
+          35666261323534343330323935643864373639643138646339333136383638373038623234653638
+          3131613339303735370a393735346531363134666535386133333934366330316235663761383261
+          3037
+    # user for target host
+    ansible_user: "{{ user }}"
+    # to use againt host
+    private_key_file: ~/.ssh/id_ed25519
+    ca_path: keys/trust.test.ca.crt
+    #for one host possible to just change next values and uncomment it
+    # target host
+    # montip: 192.168.1.20
+    #ports of that host
+    # montport: 443 #443/80
+    # using tcp or udp
+    # montproto: tcp #tcp/udp
+    # the host hostname
+    # monthost: hello.test
+  tasks:
+    # get url of repos that connect to it to update/upgrade system repo
+    # return output on number of websites at pkgq.stdout_lines
+    - name: Get Websites of Yum Repos
+        # yum command to get mirror links
+      ansible.builtin.shell: yum repolist  --enabled --cacheonly -v -q|egrep 'Repo-mirrors|Repo-metalink|Repo-baseurl'|cut -d/ -f3|sort -u
+      when: 
+        - ansible_pkg_mgr  == "yum"
+      become: yes
+      become_method: sudo
+      become_user: root
+      remote_user: user
+      # save to yumq
+      register: yumq
+      tags:
+        - linux
+        - yum
+
+    - name: swap yumq to pkgq
+      set_fact:
+        pkgq: "{{ yumq }}"
+      when: 
+        - yumq is succeeded or yumq is changed
+        - ansible_pkg_mgr  == "yum" or ansible_pkg_mgr == "dnf"
+      tags:
+        - swap
+        - config
+
+    - name: Dump "yum Query" output
+      ansible.builtin.debug:
+        msg: '{{ yumq.stdout_lines | type_debug}}'
+      when: 
+        - ansible_pkg_mgr  == "yum" or ansible_pkg_mgr == "dnf"
+      tags:
+        - debuging 
+# get url of repos that connect to it to update/upgrade system repo
+# return output on number of websites at pkgq.stdout_lines
+    - name: Get Websites of APT Repos
+      # get mirrors by apt
+      ansible.builtin.shell: apt-cache policy | awk '/http.*amd64/{print$2}' |cut -d/ -f3|sort -u
+      when: ansible_pkg_mgr  == "apt"     
+      remote_user: user
+      register: aptq   
+      tags:
+        - linux
+        - apt
+    - name: Dump "apt Query" output
+      ansible.builtin.debug:
+        msg: "{{ aptq.stdout_lines |type_debug }}"
+      when: ansible_pkg_mgr  == "apt"     
+      tags:
+        - debuging
+    - name: swap aptq to pkgq
+      set_fact:
+        pkgq : "{{ aptq }}"
+      when: 
+        - aptq is succeeded or aptq is changed
+        - ansible_pkg_mgr  == "apt"    
+      tags:
+        - swap
+        - config
+    - name: debug pkgq 
+      debug:
+        msg: "{{ pkgq.stdout_lines }}"
+      tags:
+        - debuging
+    - name: combine two lists one from mikrotik and another in host_vars
+      set_fact:
+        allhostslist: "{{ pkgq.stdout_lines + hostslist }}"
+        override: yes
+# detect/check existance of that hostname/website 
+#/ip/firewall/address-list> print where address =repo.test.com
+# select based on src-address by using query or extended_query
+# using query
+# print where src-address="192.168.1.20"
+    - name: detect/check exist of hostname for yum/apt in mikrotik
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: "ip firewall address-list"
+        query: .id address list WHERE address == {{ item }}      
+        # vars:
+        #   dictqueryout: "{{ dict(queryout|zip(msg)) }}"
+        # query: ".id address list WHERE address == {{ item }}"
+        # not work
+        # bcs there is no thing named 'address'https://www.youtube.com/watch?v=vBlvjTJpGH0
+        # query: ".id address disabled WHERE src-address == {{ montip }}"
+        ## multi condition not support multi condition and,or
+        # query: '.id src-address disabled protocol dst-address dst-port WHERE src-address == "{{ montip }}" AND disabled == "false"'
+      delegate_to: localhost
+      register:   queryoutyum
+      loop:  "{{ allhostslist }}"
+      when: 
+        - ansible_pkg_mgr  == "yum" or ansible_pkg_mgr == "dnf" or ansible_pkg_mgr  == "apt"  
+      tags:
+        - mikrotik
+        - network
+
+    - name: Dump "using query_json queryoutyum" output
+      debug:
+        # msg: "{{ item.msg.address }}"
+        msg: "{{ item | community.general.json_query('msg[*]')}}"
+      loop: "{{ queryoutyum.results }}" 
+      when: 
+        - ansible_pkg_mgr  == "yum" or ansible_pkg_mgr == "dnf" or ansible_pkg_mgr  == "apt"  
+        - (item | community.general.json_query('msg[*].address'))|length == 0
+      tags:
+        - debuging
+
+# set value of not exist host in mikrotik
+    - name: set/save not exist hostname to var
+      set_fact:
+        notexisthostsaddrlist: 
+          - "{{  item.item }}" 
+        # msg: "{{ item.msg.address }}"
+        # msg: "{{ item|type_debug }}"
+      loop: "{{ queryoutyum.results }}" 
+      when: 
+        - ansible_pkg_mgr  == "yum" or ansible_pkg_mgr == "dnf" or ansible_pkg_mgr  == "apt"  
+        # when the host name not exist on device 
+        #     "msg": [
+        # "no results for 'ip firewall address-list 'query' .id address list WHERE address == download.test.com"
+        # mean there is no address == [] so lenght is 0
+        - (item | community.general.json_query('msg[*].address'))|length == 0
+      tags:
+        - config
+    - name: Dump exist hosts
+      debug:
+        msg: "{{  notexisthostsaddrlist }}"
+      tags:
+        - debuging
+
+
+
+#command on mikrotik
+# addresslist to add website to resloved ip to be used
+#  /ip/firewall/address-list add address=mirror.test.com comment=mirror.test.com  list=mirror.test.com
+#  /ip/firewall/address-list add comment=cdn.redhat.com  list=cdn.redhat.com address=cdn.redhat.com 
+    - name: Add websites repo to address-list in mikrotik to be used in nat from mirrors of yum/apt
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: "ip firewall address-list"
+        add: address="{{ item }}"  comment="{{ item }}" list="{{ item }}"
+      loop:  "{{ notexisthostsaddrlist }}"
+      delegate_to: localhost
+      register: CreateAddressListThroughApiQ
+      when: notexisthostsaddrlist|length != 0
+      tags: 
+        - mikrotik
+
+
+
+############################### nat ############################################
+# mikrotik command for nat
+# /ip firewall/nat/add src-address=192.168.1.45 protocol=tcp chain=dstnat action=masquerade disabled=yes dst-port=443 comment=''    
+# detect exist of hostname and ip of server on device
+# like
+# montip: 192.168.1.15
+# montport: [443,80] #443/80
+# montproto: tcp #tcp/udp
+# monthost: manage.test
+# user: root
+    # - name: set/save  websites for test
+    #   set_fact:
+    #   # item is address of not exist hostname
+    #     notexisthostsaddrlist: 
+    #       - 'download.proxmox.com'
+    #       - 'api.telegram.org'
+    #   tags:
+    #     - test
+
+
+# using extended_query detect/check hostname ip of websites/ports in nat in mikro 
+# ip firewall nat find
+# .dead                 in-bridge-port             port            
+# .id                   in-bridge-port-list        priority        
+# .nextid               in-interface               protocol        
+# action                in-interface-list          psd             
+# address-list          ingress-priority           random          
+# address-list-timeout  invalid                    realm           
+# bytes                 ipsec-policy               routing-mark    
+# chain                 ipv4-options               same-not-by-dst 
+# comment               jump-target                src-address     
+# connection-...        layer7-protocol            src-address-list
+# content               limit                      src-address-type
+# disabled              log                        src-mac-address 
+# dscp                  log-prefix                 src-port        
+# dst-address           nth                        tcp-mss         
+# dst-address-list      out-bridge-port            time            
+# dst-address-type      out-bridge-port-list       tls-host        
+# dst-limit             out-interface              to-addresses    
+# dst-port              out-interface-list         to-ports        
+# dynamic               packet-mark                ttl             
+# fragment              packet-size                where           
+# hotspot               packets                    
+# icmp-options          per-connection-classifier 
+    # the goal for install repo mean protocol tcp and port 80/443
+    # return null not exist or data
+    - name: Extended query detect/check hostname ip of websites/ports in nat in mikro 
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: "ip firewall nat"
+        extended_query:
+          attributes:
+          # Every attribute used in a where clause need to be listed here.
+            - comment
+            - disabled
+            - src-address
+            - dst-address
+            - dst-port
+            - protocol
+            - .id
+            - dst-address-list
+            - action
+          where:
+          # WHERE src-address == {{ montip }} AND protocol == {{ montproto }} AND dst-address-list == {{ item.1 }} AND dst-port == {{ item.0 }}
+            # - attribute: "disabled"
+            #   is: "=="
+            #   value: "true"
+            - attribute: "dst-port"
+              is: "eq"
+              value: "{{ item.0 }}"
+            - attribute: "src-address"
+              is: "=="
+              value: "{{ montip }}"
+            - attribute: "protocol"
+              is: "=="
+              value: "{{ montproto }}"
+            - attribute: "dst-address-list"
+              is: "=="
+              value: "{{ item.1 }}"
+            - attribute: "action"
+              is: "=="
+              value: "{{ nataction }}"
+
+      delegate_to: localhost
+      register:   QueryNatDetectOut
+      with_nested:  
+        - "{{ montport }}"
+        - "{{ allhostslist }}"
+      when: allhostslist|length != 0
+      tags:
+        - mikrotik
+        - network
+  
+
+    - name: debug output QueryNatDetectOut
+      debug:
+        var: QueryNatDetectOut
+      tags:
+        - debuging
+
+# set/add websites of not exist website/port in variable notexistnatinfo
+# need set not exist website/port
+# saved [0]port [1]website
+    - name: set/save not exist hostname in nat to var
+      set_fact:
+      # item is address of not exist hostname in nat of that ip
+        notexistnatinfo: "{{ notexistnatinfo | union([item.item])   }}"
+        # msg: "{{ item.msg.address }}"
+        # msg: "{{ item|type_debug }}"
+      loop: "{{ QueryNatDetectOut.results }}" 
+      # when there is no value mean not exist in nat dev
+      when: (item | community.general.json_query('msg[*]'))|length == 0
+      tags:
+        - config
+    
+    - name: debug output notexistnatinfo
+      debug:
+        var: notexistnatinfo
+      tags:
+        - debuging
+        # when the host name not exist on device 
+        #     "msg": [
+        # "no results for 'ip firewall address-list 'query' .id address list WHERE address == download.zerotier.com"
+        # mean there is no address == [] so lenght is 0
+        
+    # # debug output of QueryNatDetectOut
+    # - name: Dump "using query_json QueryNatDetectOut" output
+    #   debug:
+    #     # msg: "{{ item.msg.address }}"
+    #     msg: "{{ queryoutapt | community.general.json_query('results[*].msg[*].address') }}"
+    #   when: 
+    #     - (item | community.general.json_query('msg[*].address'))|length == 0
+      # tags:
+      #   - debuging
+
+# adding nat
+# ip firewall nat find
+# .dead                 in-bridge-port             port            
+# .id                   in-bridge-port-list        priority        
+# .nextid               in-interface               protocol        
+# action                in-interface-list          psd             
+# address-list          ingress-priority           random          
+# address-list-timeout  invalid                    realm           
+# bytes                 ipsec-policy               routing-mark    
+# chain                 ipv4-options               same-not-by-dst 
+# comment               jump-target                src-address     
+# connection-...        layer7-protocol            src-address-list
+# content               limit                      src-address-type
+# disabled              log                        src-mac-address 
+# dscp                  log-prefix                 src-port        
+# dst-address           nth                        tcp-mss         
+# dst-address-list      out-bridge-port            time            
+# dst-address-type      out-bridge-port-list       tls-host        
+# dst-limit             out-interface              to-addresses    
+# dst-port              out-interface-list         to-ports        
+# dynamic               packet-mark                ttl             
+# fragment              packet-size                where           
+# hotspot               packets                    
+# icmp-options          per-connection-classifier 
+
+    - name: add website and port to nat on device that not exist
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: "ip firewall nat"
+        # to use yml >-
+        add: >-
+         src-address={{ montip }}
+         protocol={{ montproto }}
+         dst-address-list={{ item.1 }}
+         dst-port={{ item.0 }}
+         comment="{{montip}}-{{ montproto }}-{{item.1}}-{{item.0}}"
+         disabled={{ natstatus }}
+         chain={{ natchain }}
+         action={{ nataction }}
+         out-interface-list={{ interfacelist }}
+      delegate_to: localhost
+      register:   QueryNatOut
+      loop:  "{{ notexistnatinfo }}"
+      when: notexistnatinfo|length != 0
+
+
+    - name: debug output QueryNatOut
+      debug:
+        var: QueryNatOut
+      tags:
+        - debuging
+
+    - name: Dump exist hosts
+      debug:
+        msg: "{{ notexistnatinfo }}" 
+      tags:
+        - debuging
+
+
+############################### verify/redetect nat ############################################
+# get of all websites/ports added in nat in mikrotik using extended_query
+# ip firewall nat
+# .dead                 in-bridge-port             port            
+# .id                   in-bridge-port-list        priority        
+# .nextid               in-interface               protocol        
+# action                in-interface-list          psd             
+# address-list          ingress-priority           random          
+# address-list-timeout  invalid                    realm           
+# bytes                 ipsec-policy               routing-mark    
+# chain                 ipv4-options               same-not-by-dst 
+# comment               jump-target                src-address     
+# connection-...        layer7-protocol            src-address-list
+# content               limit                      src-address-type
+# disabled              log                        src-mac-address 
+# dscp                  log-prefix                 src-port        
+# dst-address           nth                        tcp-mss         
+# dst-address-list      out-bridge-port            time            
+# dst-address-type      out-bridge-port-list       tls-host        
+# dst-limit             out-interface              to-addresses    
+# dst-port              out-interface-list         to-ports        
+# dynamic               packet-mark                ttl             
+# fragment              packet-size                where           
+# hotspot               packets                    
+# icmp-options          per-connection-classifier 
+    - name: get of all websites/ports added in nat in mikro using extended_query 
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        path: "ip firewall nat"
+        extended_query:
+          attributes:
+          # Every attribute used in a where clause need to be listed here.
+            - comment
+            - disabled
+            - src-address
+            - dst-address
+            - dst-port
+            - protocol
+            - .id
+            - dst-address-list
+            - action
+          where:
+            - attribute: "dst-port"
+              is: "eq"
+              value: "{{ item.0 }}"
+            - attribute: "src-address"
+              is: "=="
+              value: "{{ montip }}"
+            - attribute: "protocol"
+              is: "=="
+              value: "{{ montproto }}"
+            - attribute: "dst-address-list"
+              is: "=="
+              value: "{{ item.1 }}"
+            - attribute: "action"
+              is: "=="
+              value: "{{ nataction }}"
+      delegate_to: localhost
+      register:   QueryNatReDetectOut
+      with_nested:  
+        - "{{ montport }}"
+        - "{{ allhostslist }}"
+      when: 
+      # when there is websites in server to be added to nat
+        - allhostslist|length != 0
+        # when there is data (websites) from yumq or aptq
+        - yumq is succeeded or yumq is changed or aptq is succeeded or aptq is changed
+      tags:
+        - mikrotik
+        - network
+
+    - name: debug get of all websites/ports added in nat in mikro using extended_query
+      debug:
+        var: QueryNatReDetectOut
+      tags:
+        - debuging
+
+    - name: count number of montport and etc to compare it with == 0 mean everything well
+      debug:
+      # give 0 if everything going well by compare repo websites*ports - nat of device websites
+      # get redetect/verify of all websites/ports added in nat in mikro      
+        msg: "{{  (QueryNatReDetectOut| community.general.json_query('results[*].item[*]')|count)-(allhostslist|count * montport|count) }}"
+      tags:
+        - debuging
+
+    - name: debug output nat items 
+      debug:
+        msg: "{{ item.0['.id'] }}"
+      loop: "{{ QueryNatReDetectOut| community.general.json_query('results[*].msg[*]') }}"
+      tags:
+        - debuging
+    
+    - name: enable nat based on websites/ports
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: ip firewall nat
+        update: >-
+          .id="{{item.0['.id']| community.routeros.quote_argument_value  }}"
+          disabled="no"
+      delegate_to: localhost
+      register:   QueryNatEnableOut
+      loop: "{{ QueryNatReDetectOut| community.general.json_query('results[*].msg[*]') }}"
+      when:
+        -  ((QueryNatReDetectOut| community.general.json_query('results[*].item[*]')|count)-(allhostslist|count * montport|count)) == 0
+      tags:
+        - net
+        - nat 
+        - mikrotik
+        - network
+
+    - name: debug change nat to net
+      debug:
+        msg: "{{ QueryNatEnableOut }}"
+      tags:
+        - debuging
+
+## action
+    - name: Pause for 3600 seconds
+      pause:
+        seconds: 3600
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# always disable net for that website/port in mikrotik
+    - name: disable nats after finished based on websites/ports
+      # meta:
+      #   flush_handlers: true
+      community.routeros.api:
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        username: "{{ username }}"
+        # ca_path: "{{ ca_path }}"
+        path: ip firewall nat
+        update: >-
+          .id="{{item.0['.id']| community.routeros.quote_argument_value  }}"
+          disabled="yes"
+
+      delegate_to: localhost
+      register:   QueryNatDisableOut
+      loop: "{{ QueryNatReDetectOut| community.general.json_query('results[*].msg[*]') }}"
+      when:
+        -  ((QueryNatReDetectOut| community.general.json_query('results[*].item[*]')|count)-(allhostslist|count * montport|count)) == 0
+      tags:
+        - net
+        - nat 
+        - mikrotik
+        - always
+        - network
+    - name: debug change nat to net
+      debug:
+        msg: "{{ QueryNatDisableOut }}"
+      tags:
+        - debuging

@@ -1,0 +1,19 @@
+# ---
+# collections:
+#   - ansible.netcommon: 5.0.0
+#   - ansible.posix: 1.5.1
+#   - ansible.utils: 2.9.0
+#   - community.general: 6.6.0
+#   - community.routeros: 2.8.0
+---
+collections:
+  - name: ansible.netcommon
+    version: 5.0.0
+  - name: ansible.posix
+    version: 1.5.1
+  - name: ansible.utils
+    version: 2.9.0
+  - name: community.general
+    version: 6.6.0
+  - name: community.routeros
+    version: 2.8.0
