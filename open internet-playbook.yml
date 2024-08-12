@@ -1,5 +1,6 @@
 ---
 - name: RouterOS test with API
+#set group name like monttest or host name in monttest in mik.hosts.ini file
   hosts: khv1srv
   gather_facts: true
   vars:
@@ -11,7 +12,8 @@
     # nat status true:disabled
     natstatus: "yes"
     # ansible_connection: ansible.netcommon.network_cli
-    hostname: gpsm.test
+    # set mikrotik ip or domain
+    hostname: router.test
     # to avoide "msg":"'pgkq' is undefined"
     pgkq: []
     notexisthostsaddrlist: []
@@ -19,8 +21,7 @@
     # after reredetect package websites in device
     detectnatwebsites: []
     # router username
-    # username: admin
-    username: testme
+    username: admin
     # router password
     password: "PasswordHere"
     # example of encrypted password:

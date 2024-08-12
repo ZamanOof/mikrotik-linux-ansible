@@ -5,5 +5,4 @@ montproto: tcp #tcp/udp
 monthost: khv1.srv.test
 user: root
 # ansible_python_interpreter: "{{ ansible_playbook_python }}"
-hostslist: ['api.github.com','github.com','raw.githubusercontent.com','download.zerotier.com','install.zerotier.com','objects.githubusercontent.com','ansible.github.io','raw.githubusercontent.com']
-# hostsport: ['31176',]
+hostslist: ['api.github.com','github.com','raw.githubusercontent.com','objects.githubusercontent.com','ansible.github.io','raw.githubusercontent.com']

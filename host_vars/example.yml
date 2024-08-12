@@ -1,0 +1,15 @@
+---
+# set ip address
+montip: 192.168.1.20
+# set list of ports to be open
+montport: [443,80] #443/80
+# set udp or tcp
+montproto: tcp #tcp/udp..
+# set domain name of host
+monthost: example.test
+# user to access ssh
+user: root
+# if there is issue with package not found of python try uncomment this
+# ansible_python_interpreter: "{{ ansible_playbook_python }}"
+# list of hosts that need to be opend too out side of mirror packages
+hostslist: ['api.github.com','github.com','raw.githubusercontent.com','objects.githubusercontent.com','ansible.github.io','raw.githubusercontent.com']
