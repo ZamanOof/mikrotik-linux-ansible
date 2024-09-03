@@ -1,19 +1,19 @@
 # getting start
 ## prepare enviorment 
-python -m pip install virtualenv
+```bash
+python3 -m pip install virtualenv
 virtualenv env 
 source env/bin/activate
 pip install -r ./requirements.yml
-
+git clone -b master git@gitlab.com:ataba1/ansible/mikrotik-linux-ansible.git
+```
 ## add your hosts
 make sure to add your hosts in `/host_var` 
-change `ansible.cfg` to select `.hosts.ini` in `inventory      = mik.hosts.ini`
- or make changes in `mik.hosts.ini`
-
+change `ansible.cfg` to select `.hosts.ini` in `inventory = mik.hosts.ini` or make changes in `mik.hosts.ini`
 ## add auth of mikrotiks 
 ### first 
 encrypt password by
-```
+```shell
 ansible-vault encrypt_string <password_source> '<string_to_encrypt>' --name '<string_name_of_variable>'
 ansible-vault encrypt_string --name 'mikrotikpassword'
 ```
