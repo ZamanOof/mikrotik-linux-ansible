@@ -1,7 +1,7 @@
 ---
-- name: RouterOS test with API
-#set group name like [monttest] or host name in example based on mik.hosts.ini file
-  hosts: 
+- name: Open nat based on Linux repos through RouterOS router 
+#set group name like "monttest" or host name like "example" based on mik.hosts.ini file
+  hosts: example
   gather_facts: true
   vars:
     encoding: "UTF-8"
