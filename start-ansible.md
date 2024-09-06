@@ -23,7 +23,7 @@
 		  cp host_vars/example.yml host_vars/NewHost.yml
 		  nano host_vars/khv1srv.yml
 		  ```
-		-
+		- change the **required**
 		  | Variable | Description | Belong to | Location | Change |
 		  |---|---|---|---|---|
 		  | hosts | set target host or group | ansible | open internet-playbook.yml | required |
@@ -49,7 +49,7 @@
 	- ### not encrypted
 		- make sure to change the variables in `open internet-playbook.yml`
 			- password
-			- user
+			- username
 	- ### encrypted
 		- encrypt password by
 		-
@@ -58,7 +58,7 @@
 		  ```
 		-
 		- put the ansible password for encrypt/decrypt
-		- then put the password
+		- then put the password of router
 		- then ctrl+d twice for no new line else ctrl+d once
 		- then generated encrypted text should be near this:
 		  ```
