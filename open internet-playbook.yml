@@ -1,7 +1,7 @@
 ---
 - name: RouterOS test with API
-#set group name like monttest or host name in monttest in mik.hosts.ini file
-  hosts: khv1srv
+#set group name like [monttest] or host name in example based on mik.hosts.ini file
+  hosts: 
   gather_facts: true
   vars:
     encoding: "UTF-8"
